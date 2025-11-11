@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🐾 ResCat API Documentation</title>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            margin: 0;
+            background: #fafafa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #7b68ee, #8a2be2);
+            color: white;
+            padding: 2.5rem 1rem;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 2rem;
+        }
+
+        h2 {
+            color: #4b0082;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 4px;
+            margin-top: 2rem;
+        }
+
+        main {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1.5rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-family: "Courier New", monospace;
+            color: #e83e8c;
+        }
+
+        pre {
+            background: #1e1e1e;
+            color: #f8f8f2;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+
+        th {
+            background: #f0f0f0;
+        }
+
+        footer {
+            text-align: center;
+            padding: 1rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .tag {
+            display: inline-block;
+            background: #8a2be2;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            margin-right: 6px;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>🐾 ResCat API</h1>
+        <p>Cat Recognition & Face Detection Service</p>
+    </header>
+
+    <main>
+        <section>
+            <h2>Status</h2>
+            <p><b>Status Saat ini:</b></p>
+                    <pre>
+{
+  "service": "{{ data.service }}",
+  "version": "{{ data.version }}",
+  "recognizer_loaded": {{ data.recognizer_loaded|tojson }},
+  "face_loaded": {{ data.face_loaded|tojson }}
+}
+                    </pre>
+            </div>
+            <section>
+                <section>
+                    <h2>📘 Overview</h2>
+                    <p>
+                        ResCat API adalah layanan berbasis Flask untuk mendeteksi apakah
+                        sebuah gambar mengandung kucing, serta mendeteksi wajah kucing di
+                        dalam gambar tersebut. API ini juga dapat mengunggah hasil crop ROI ke
+                        server Laravel secara otomatis.
+                    </p>
+                </section>
+
+                <section>
+                    <h2>🚀 Endpoints</h2>
+
+                    <h3><span class="tag">GET</span> /v1</h3>
+                    <p>Menampilkan status service dan model yang telah dimuat.</p>
+                    <pre>
+{
+  "service": "ResCat API",
+  "version": "v1",
+  "recognizer_loaded": true,
+  "face_loaded": true
+}</pre>
+
+                    <h3><span class="tag">POST</span> /v1/cat/recognize</h3>
+                    <p>
+                        Mendeteksi apakah gambar berisi kucing, serta memvalidasi wajah
+                        kucing.
+                    </p>
+
+                    <table>
+                        <tr>
+                            <th>Parameter</th>
+                            <th>Tipe</th>
+                            <th>Keterangan</th>
+                        </tr>
+                        <tr>
+                            <td><code>file</code></td>
+                            <td>Form-Data (image)</td>
+                            <td>Gambar yang akan diproses</td>
+                        </tr>
+                    </table>
+
+                    <p><b>Contoh response:</b></p>
+                    <pre>
+{
+  "ok": true,
+  "can_proceed": true,
+  "message": "Deteksi valid.",
+  "recognize": {
+    "label": "CAT",
+    "cat_prob": 0.97
+  },
+  "faces": {
+    "ok": true,
+    "faces_count": 1,
+    "roi_url": "https://content.rescat.life/uploads/roi_abc123.jpg"
+  }
+}</pre>
+
+                    <h3><span class="tag">POST</span> /v1/cat/faces</h3>
+                    <p>
+                        Mendeteksi wajah kucing dan mengembalikan jumlah serta posisi wajah
+                        yang ditemukan.
+                    </p>
+                    <pre>
+{
+  "ok": true,
+  "faces_count": 2,
+  "chosen_conf": 0.81,
+  "note": "2 faces detected",
+  "image_url": "https://content.rescat.life/uploads/roi_xyz456.jpg"
+}</pre>
+                </section>
+
+                <section>
+                    <h2>⚙️ Environment Variables</h2>
+                    <table>
+                        <tr>
+                            <th>Nama</th>
+                            <th>Default</th>
+                            <th>Deskripsi</th>
+                        </tr>
+                        <tr>
+                            <td><code>THRESHOLD</code></td>
+                            <td>0.50</td>
+                            <td>Batas probabilitas pengenalan kucing</td>
+                        </tr>
+                        <tr>
+                            <td><code>TOPK</code></td>
+                            <td>3</td>
+                            <td>Jumlah prediksi teratas</td>
+                        </tr>
+                        <tr>
+                            <td><code>UPLOAD_TO_LARAVEL</code></td>
+                            <td>true</td>
+                            <td>Aktifkan upload ROI ke Laravel</td>
+                        </tr>
+                        <tr>
+                            <td><code>PORT</code></td>
+                            <td>8000</td>
+                            <td>Port server Flask</td>
+                        </tr>
+                    </table>
+                </section>
+
+                <section>
+                    <h2>🧠 Tips</h2>
+                    <ul>
+                        <li>Gunakan pencahayaan yang cukup saat mengambil gambar.</li>
+                        <li>Pastikan wajah kucing terlihat jelas agar deteksi akurat.</li>
+                        <li>
+                            Gunakan endpoint <code>/v1/cat/recognize</code> untuk hasil lengkap
+                            (klasifikasi + wajah).
+                        </li>
+                    </ul>
+                </section>
+    </main>
+
+    <footer>© 2025 ResCat API — Powered by Flask 🐍</footer>
+</body>
+
+</html>
