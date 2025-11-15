@@ -14,9 +14,11 @@ import uuid
 import time
 import logging
 import io
-from flask import Flask, request, g, redirect, url_for, render_template
+from flask import Flask, request, g, redirect, url_for, render_template, send_file
 from dotenv import load_dotenv
 from PIL import Image, UnidentifiedImageError
+from rembg import remove
+import requests
 from utils.validation import validate_upload, MAX_FILE_MB
 from utils.responses import ok, err
 from inference import CatClassifier
@@ -268,6 +270,127 @@ def detect_faces():
         })
     except Exception as e:
         return err("INFERENCE_ERROR", f"Face detector error: {e}", status=500)
+
+@app.post("/v1/cat/remove-bg")
+def remove_bg_route():
+    """
+    Remove background dari gambar (CPU only, unlimited, pakai rembg).
+
+    Cara pakai:
+    - MODE 1: Upload file
+        POST multipart/form-data
+        field: file (image)
+
+    - MODE 2: Pakai URL
+        a) JSON body: { "url": "https://..." }
+        b) atau form-data: key=url, value=<image-url>
+        c) atau query: /v1/cat/remove-bg?url=https://...
+    """
+    image_bytes = None
+
+    # ---------- MODE 1: file upload ----------
+    if "file" in request.files and request.files["file"].filename:
+        image_bytes, error_resp = read_image_bytes_from_form()
+        if error_resp:
+            return error_resp
+    else:
+        # ---------- MODE 2: URL ----------
+        data = {}
+        if request.is_json:
+            data = request.get_json(silent=True) or {}
+        else:
+            data = request.form.to_dict() or {}
+
+        url = data.get("url") or request.args.get("url")
+
+        if not url:
+            return err(
+                "INVALID_INPUT",
+                "Provide either form-data 'file' or 'url' (JSON/form/query)",
+                status=400,
+            )
+
+        try:
+            # batas ukuran file remote (sedikit di atas MAX_FILE_MB)
+            max_bytes = int((MAX_FILE_MB + 1) * 1024 * 1024)
+
+            resp = requests.get(
+                url,
+                timeout=10,
+                stream=True,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0 Safari/537.36"
+                    )
+                }
+            )
+            if not resp.ok:
+                return err(
+                    "FETCH_FAILED",
+                    f"Failed to fetch image from URL (status {resp.status_code})",
+                    status=400,
+                )
+
+            # cek content length kalau ada
+            content_length = resp.headers.get("Content-Length")
+            if content_length and int(content_length) > max_bytes:
+                return err(
+                    "FILE_TOO_LARGE",
+                    f"Remote file bigger than {MAX_FILE_MB} MB",
+                    status=413,
+                )
+
+            content = resp.content
+            if len(content) > max_bytes:
+                return err(
+                    "FILE_TOO_LARGE",
+                    f"Remote file bigger than {MAX_FILE_MB} MB",
+                    status=413,
+                )
+
+            # verifikasi memang image
+            try:
+                img = Image.open(io.BytesIO(content))
+                img.verify()
+            except UnidentifiedImageError:
+                return err(
+                    "UNSUPPORTED_MEDIA_TYPE",
+                    "URL does not point to a valid image",
+                    status=415,
+                )
+
+            image_bytes = content
+
+        except Exception as e:
+            log.exception("FETCH_URL_ERROR: %s", e)
+            return err(
+                "FETCH_URL_ERROR",
+                f"Failed to download image from URL: {e}",
+                status=400,
+            )
+
+    # ---------- PROSES REMOVE BACKGROUND ----------
+    try:
+        out_bytes = remove(image_bytes)
+
+        buf = io.BytesIO(out_bytes)
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            mimetype="image/png",
+            as_attachment=False,
+            download_name="removed-bg.png",
+        )
+    except Exception as e:
+        log.exception("REMOVE_BG_ERROR: %s", e)
+        return err(
+            "REMOVE_BG_ERROR",
+            f"Failed to remove background: {e}",
+            status=500,
+        )
 
 # ================== Run App ==================
 if __name__ == "__main__":
