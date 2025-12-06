@@ -164,13 +164,18 @@ def v1_root():
         "service": "ResCat API",
         "version": "v1",
         "recognizer_loaded": MODEL_READY,
-        "face_loaded": FACE_READY
+        "face_loaded": FACE_READY,
+        "landmark_loaded": LANDMARK_READY
     }
     return render_template("index.html", data=data)
 
 @app.get("/healthz")
 def healthz():
-    return ok({"recognizer_loaded": MODEL_READY, "face_loaded": FACE_READY})
+    return ok({
+        "recognizer_loaded": MODEL_READY,
+        "face_loaded": FACE_READY,
+        "landmark_loaded": LANDMARK_READY,
+    })
 
 @app.post("/v1/cat/recognize")
 def recognize_cat():
