@@ -478,8 +478,9 @@ def landmark_route():
     
     for name, crop_bytes in crops.items():
         try:
-            filename = f"{name}_{base_name}.jpg"
-            upload_result = upload_image_bytes(crop_bytes, config.BUCKET_LANDMARK, filename)
+            bucket_name = f"{name}_crop"
+            filename = f"{base_name}.jpg"
+            upload_result = upload_image_bytes(crop_bytes, bucket_name, filename)
             
             if not upload_result.get("ok"):
                 msg = upload_result.get("message", "Upload failed")
@@ -491,7 +492,7 @@ def landmark_route():
             if not url:
                 return err("UPLOAD_INVALID_RESPONSE", f"Upload service did not return url for {name}", status=502)
             
-            uploaded_urls[f"{name}_crop"] = url
+            uploaded_urls[bucket_name] = url
         except Exception as e:
             log.exception("UPLOAD_ERROR for %s: %s", name, e)
             return err("UPLOAD_ERROR", f"Failed to upload {name}: {e}", status=502)
