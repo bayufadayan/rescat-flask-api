@@ -436,12 +436,46 @@ def landmark_route():
             return err("INVALID_URL", "URL must be a non-empty string", status=400)
         
         try:
-            resp = requests.get(file_url, timeout=15)
-            resp.raise_for_status()
+            max_bytes = int((config.MAX_FILE_MB + 1) * 1024 * 1024)
+            
+            resp = requests.get(
+                file_url,
+                timeout=15,
+                stream=True,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0 Safari/537.36"
+                    )
+                },
+            )
+            if not resp.ok:
+                return err(
+                    "FETCH_FAILED",
+                    f"Failed to fetch image from URL (status {resp.status_code})",
+                    status=400,
+                )
+            
+            content_length = resp.headers.get("Content-Length")
+            if content_length and int(content_length) > max_bytes:
+                return err(
+                    "FILE_TOO_LARGE",
+                    f"Remote file bigger than {config.MAX_FILE_MB} MB",
+                    status=413,
+                )
+            
             content = resp.content
+            if len(content) > max_bytes:
+                return err(
+                    "FILE_TOO_LARGE",
+                    f"Remote file bigger than {config.MAX_FILE_MB} MB",
+                    status=413,
+                )
             
             try:
-                Image.open(io.BytesIO(content)).verify()
+                img = Image.open(io.BytesIO(content))
+                img.verify()
             except UnidentifiedImageError:
                 return err("UNSUPPORTED_MEDIA_TYPE", "URL does not point to a valid image", status=415)
             
