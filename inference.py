@@ -44,8 +44,8 @@ class CatClassifier:
     
     def __init__(
         self,
-        onnx_path: str = "models/mobilenetv3_small.onnx",
-        classes_path: str = "models/imagenet_classes.txt",
+        onnx_path: str = "models/validation_model/mobilenetv3_small.onnx",
+        classes_path: str = "models/validation_model/imagenet_classes.txt",
         threshold: float = 0.50,
         topk: int = 3,
         providers: List[str] = None
@@ -130,8 +130,8 @@ if __name__ == "__main__":
         image_bytes = f.read()
 
     clf = CatClassifier(
-        onnx_path="models/mobilenetv3_small.onnx",
-        classes_path="models/imagenet_classes.txt",
+        onnx_path="models/validation_model/mobilenetv3_small.onnx",
+        classes_path="models/validation_model/imagenet_classes.txt",
         threshold=float(os.getenv("THRESHOLD", 0.50)),
         topk=int(os.getenv("TOPK", 3)),
     )

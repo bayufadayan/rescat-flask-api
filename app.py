@@ -17,6 +17,7 @@ from utils.validation import validate_upload
 from utils.responses import ok, err
 from inference import CatClassifier
 from yolo_face import CatFaceDetector
+from landmark_detector import LandmarkDetector
 from utils.uploader import upload_image_bytes
 
 if config.CORS_ENABLED:
@@ -33,6 +34,7 @@ app.config["MAX_CONTENT_LENGTH"] = int((config.MAX_FILE_MB + 1) * 1024 * 1024)
 
 MODEL_READY = False
 FACE_READY = False
+LANDMARK_READY = False
 
 try:
     app.classifier = CatClassifier(
@@ -62,6 +64,16 @@ try:
     log.info("Face detector loaded")
 except Exception as e:
     log.exception("FACE MODEL INIT ERROR: %s", e)
+
+try:
+    app.landmark_detector = LandmarkDetector(
+        bbox_onnx_path=config.LANDMARK_BBOX_ONNX,
+        landmark_onnx_path=config.LANDMARK_ONNX
+    )
+    LANDMARK_READY = True
+    log.info("Landmark detector loaded")
+except Exception as e:
+    log.exception("LANDMARK MODEL INIT ERROR: %s", e)
 
 @app.before_request
 def before_request():
@@ -152,13 +164,18 @@ def v1_root():
         "service": "ResCat API",
         "version": "v1",
         "recognizer_loaded": MODEL_READY,
-        "face_loaded": FACE_READY
+        "face_loaded": FACE_READY,
+        "landmark_loaded": LANDMARK_READY
     }
     return render_template("index.html", data=data)
 
 @app.get("/healthz")
 def healthz():
-    return ok({"recognizer_loaded": MODEL_READY, "face_loaded": FACE_READY})
+    return ok({
+        "recognizer_loaded": MODEL_READY,
+        "face_loaded": FACE_READY,
+        "landmark_loaded": LANDMARK_READY,
+    })
 
 @app.post("/v1/cat/recognize")
 def recognize_cat():
@@ -400,6 +417,93 @@ def remove_bg_route():
             f"Failed to upload removed-bg image: {e}",
             status=502,
         )
+
+@app.post("/v1/cat/landmark")
+def landmark_route():
+    """Detect cat facial landmarks and crop regions (eyes, ears, mouth)."""
+    if not LANDMARK_READY:
+        return err("MODEL_NOT_READY", "Landmark detector not initialized", status=503)
+    
+    image_bytes = None
+    
+    if "file" in request.files and request.files["file"].filename:
+        image_bytes, error_resp = read_image_bytes_from_form()
+        if error_resp:
+            return error_resp
+    elif request.is_json and request.json and "file" in request.json:
+        file_url = request.json["file"]
+        if not isinstance(file_url, str) or not file_url.strip():
+            return err("INVALID_URL", "URL must be a non-empty string", status=400)
+        
+        try:
+            resp = requests.get(file_url, timeout=15)
+            resp.raise_for_status()
+            content = resp.content
+            
+            try:
+                Image.open(io.BytesIO(content)).verify()
+            except UnidentifiedImageError:
+                return err("UNSUPPORTED_MEDIA_TYPE", "URL does not point to a valid image", status=415)
+            
+            image_bytes = content
+        except Exception as e:
+            log.exception("FETCH_URL_ERROR: %s", e)
+            return err("FETCH_URL_ERROR", f"Failed to download image from URL: {e}", status=400)
+    else:
+        return err("MISSING_INPUT", "Provide 'file' in form-data or JSON with image URL", status=400)
+    
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as e:
+        return err("IMAGE_DECODE_ERROR", f"Failed to decode image: {e}", status=400)
+    
+    try:
+        result = app.landmark_detector.detect_and_crop(img)
+    except ValueError as e:
+        return err("VALIDATION_ERROR", str(e), status=400)
+    except Exception as e:
+        log.exception("LANDMARK_DETECTION_ERROR: %s", e)
+        return err("INFERENCE_ERROR", f"Landmark detection error: {e}", status=500)
+    
+    crops = {
+        "right_eye": result.right_eye,
+        "left_eye": result.left_eye,
+        "mouth": result.mouth,
+        "right_ear": result.right_ear,
+        "left_ear": result.left_ear,
+    }
+    
+    base_name = f"{int(time.time()*1000)}-{g.request_id}"
+    uploaded_urls = {}
+    
+    for name, crop_bytes in crops.items():
+        try:
+            bucket_name = f"{name}_crop"
+            filename = f"{base_name}.jpg"
+            upload_result = upload_image_bytes(crop_bytes, bucket_name, filename)
+            
+            if not upload_result.get("ok"):
+                msg = upload_result.get("message", "Upload failed")
+                return err("UPLOAD_ERROR", f"Failed to upload {name}: {msg}", status=502)
+            
+            data = upload_result.get("data") or upload_result
+            url = data.get("url")
+            
+            if not url:
+                return err("UPLOAD_INVALID_RESPONSE", f"Upload service did not return url for {name}", status=502)
+            
+            uploaded_urls[bucket_name] = url
+        except Exception as e:
+            log.exception("UPLOAD_ERROR for %s: %s", name, e)
+            return err("UPLOAD_ERROR", f"Failed to upload {name}: {e}", status=502)
+    
+    return ok({
+        "right_eye_crop": uploaded_urls["right_eye_crop"],
+        "left_eye_crop": uploaded_urls["left_eye_crop"],
+        "mouth_crop": uploaded_urls["mouth_crop"],
+        "right_ear_crop": uploaded_urls["right_ear_crop"],
+        "left_ear_crop": uploaded_urls["left_ear_crop"],
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=config.PORT, debug=True)
