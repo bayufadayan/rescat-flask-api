@@ -23,8 +23,12 @@ class Config:
     HI_PRIORITY = float(os.getenv("HI_PRIORITY", "0.80"))
     MAX_DET = int(os.getenv("MAX_DET", "5"))
     
+    LANDMARK_BBOX_ONNX = os.getenv("LANDMARK_BBOX_ONNX", "models/landmark_model/frederic_bbox.onnx")
+    LANDMARK_ONNX = os.getenv("LANDMARK_ONNX", "models/landmark_model/frederic_landmarks.onnx")
+    
     BUCKET_PREVIEW = os.getenv("BUCKET_PREVIEW", "preview-bounding-box")
     BUCKET_ROI = os.getenv("BUCKET_ROI", "roi-face-cat")
+    BUCKET_LANDMARK = os.getenv("BUCKET_LANDMARK", "landmark-crops")
     
     REMOVEBG_CACHE_DIR = os.getenv("REMOVEBG_CACHE_DIR", "cache/remove-bg")
 
