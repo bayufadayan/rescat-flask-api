@@ -10,11 +10,11 @@ class Config:
     MAX_FILE_MB = float(os.getenv("MAX_FILE_MB", "8"))
     CORS_ENABLED = os.getenv("CORS_ENABLED", "false").lower() == "true"
     
-    ONNX_PATH = os.getenv("ONNX_PATH", "models/mobilenetv3_small.onnx")
-    CLASSES_PATH = os.getenv("CLASSES_PATH", "models/imagenet_classes.txt")
+    ONNX_PATH = os.getenv("ONNX_PATH", "models/validation_model/mobilenetv3_small.onnx")
+    CLASSES_PATH = os.getenv("CLASSES_PATH", "models/validation_model/imagenet_classes.txt")
     
-    CAT_HEAD_ONNX = os.getenv("CAT_HEAD_ONNX", "models/cat_head_model.onnx")
-    CAT_HEAD_CLASSES = os.getenv("CAT_HEAD_CLASSES", "models/cat_head_classes.json")
+    CAT_HEAD_ONNX = os.getenv("CAT_HEAD_ONNX", "models/validation_model/cat_head_model.onnx")
+    CAT_HEAD_CLASSES = os.getenv("CAT_HEAD_CLASSES", "models/validation_model/cat_head_classes.json")
     IMG_SIZE = int(os.getenv("IMG_SIZE", "640"))
     CONF_RAW = float(os.getenv("CONF_RAW", "0.20"))
     MIN_CONF = float(os.getenv("MIN_CONF", "0.40"))
