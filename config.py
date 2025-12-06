@@ -29,6 +29,7 @@ class Config:
     BUCKET_PREVIEW = os.getenv("BUCKET_PREVIEW", "preview-bounding-box")
     BUCKET_ROI = os.getenv("BUCKET_ROI", "roi-face-cat")
     BUCKET_LANDMARK = os.getenv("BUCKET_LANDMARK", "landmark-crops")
+    BUCKET_LANDMARKED_FACE = os.getenv("BUCKET_LANDMARKED_FACE", "landmarked_face")
     
     REMOVEBG_CACHE_DIR = os.getenv("REMOVEBG_CACHE_DIR", "cache/remove-bg")
 

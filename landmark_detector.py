@@ -5,7 +5,7 @@ from typing import Tuple
 import numpy as np
 import onnxruntime as ort
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 @dataclass
@@ -15,6 +15,7 @@ class LandmarkResult:
     mouth: bytes
     right_ear: bytes
     left_ear: bytes
+    landmarked_image: bytes
 
 
 class LandmarkDetector:
@@ -147,13 +148,39 @@ class LandmarkDetector:
             crop.save(buf, format="JPEG", quality=95)
             return buf.getvalue()
 
+        landmarked_image = self.draw_landmarks(img, landmarks)
+        
         return LandmarkResult(
             right_eye=to_bytes(right_eye),
             left_eye=to_bytes(left_eye),
             mouth=to_bytes(mouth),
             right_ear=to_bytes(right_ear),
             left_ear=to_bytes(left_ear),
+            landmarked_image=to_bytes(landmarked_image),
         )
+
+    def draw_landmarks(self, img: Image.Image, landmarks: np.ndarray) -> Image.Image:
+        img_copy = img.copy()
+        draw = ImageDraw.Draw(img_copy)
+        
+        for i, (x, y) in enumerate(landmarks):
+            r = 8
+            draw.ellipse([x - r, y - r, x + r, y + r], fill="yellow", outline="orange", width=2)
+        
+        connections = [
+            (3, 0),
+            (0, 1),
+            (1, 4),
+            (4, 2),
+            (2, 3),
+        ]
+        
+        for start, end in connections:
+            x1, y1 = landmarks[start]
+            x2, y2 = landmarks[end]
+            draw.line([x1, y1, x2, y2], fill="yellow", width=3)
+        
+        return img_copy
 
     def detect_and_crop(self, img: Image.Image) -> LandmarkResult:
         img = self.validate_and_resize_image(img)

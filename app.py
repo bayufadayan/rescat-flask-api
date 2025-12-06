@@ -531,7 +531,29 @@ def landmark_route():
             log.exception("UPLOAD_ERROR for %s: %s", name, e)
             return err("UPLOAD_ERROR", f"Failed to upload {name}: {e}", status=502)
     
+    try:
+        landmarked_filename = f"landmarked_{base_name}.jpg"
+        landmarked_upload = upload_image_bytes(
+            result.landmarked_image,
+            config.BUCKET_LANDMARKED_FACE,
+            landmarked_filename
+        )
+        
+        if not landmarked_upload.get("ok"):
+            msg = landmarked_upload.get("message", "Upload failed")
+            return err("UPLOAD_ERROR", f"Failed to upload landmarked image: {msg}", status=502)
+        
+        landmarked_data = landmarked_upload.get("data") or landmarked_upload
+        landmarked_url = landmarked_data.get("url")
+        
+        if not landmarked_url:
+            return err("UPLOAD_INVALID_RESPONSE", "Upload service did not return url for landmarked image", status=502)
+    except Exception as e:
+        log.exception("UPLOAD_ERROR for landmarked_image: %s", e)
+        return err("UPLOAD_ERROR", f"Failed to upload landmarked image: {e}", status=502)
+    
     return ok({
+        "landmarked_face": landmarked_url,
         "right_eye_crop": uploaded_urls["right_eye_crop"],
         "left_eye_crop": uploaded_urls["left_eye_crop"],
         "mouth_crop": uploaded_urls["mouth_crop"],
