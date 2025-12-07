@@ -80,12 +80,18 @@ class LandmarkDetector:
     def determine_scenario(self, img: Image.Image) -> int:
         w, h = img.size
         longest = max(w, h)
-        if longest < 1100:
+        is_landscape = w >= h
+
+        if is_landscape:
+            if longest >= 1000:
+                return 3
+            if longest >= 700:
+                return 2
             return 1
-        elif longest <= 1400:
-            return 2
-        else:
+
+        if longest >= 1100:
             return 3
+        return 1
 
     def crop_point_scaled(self, img: Image.Image, p: np.ndarray, size: int = 128, scale: float = 2.2) -> Image.Image:
         x, y = p
