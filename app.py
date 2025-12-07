@@ -18,6 +18,7 @@ from utils.responses import ok, err
 from inference import CatClassifier
 from yolo_face import CatFaceDetector
 from landmark_detector import LandmarkDetector
+from area_classifier import AreaClassifier
 from utils.uploader import upload_image_bytes
 
 if config.CORS_ENABLED:
@@ -35,6 +36,7 @@ app.config["MAX_CONTENT_LENGTH"] = int((config.MAX_FILE_MB + 1) * 1024 * 1024)
 MODEL_READY = False
 FACE_READY = False
 LANDMARK_READY = False
+CLASSIFIER_READY = False
 
 try:
     app.classifier = CatClassifier(
@@ -74,6 +76,17 @@ try:
     log.info("Landmark detector loaded")
 except Exception as e:
     log.exception("LANDMARK MODEL INIT ERROR: %s", e)
+
+try:
+    app.area_classifier = AreaClassifier(
+        eye_model_path=config.EYE_MODEL_PATH,
+        ear_model_path=config.EAR_MODEL_PATH,
+        mouth_model_path=config.MOUTH_MODEL_PATH
+    )
+    CLASSIFIER_READY = True
+    log.info("Area classifier loaded")
+except Exception as e:
+    log.exception("CLASSIFIER MODEL INIT ERROR: %s", e)
 
 @app.before_request
 def before_request():
@@ -165,7 +178,8 @@ def v1_root():
         "version": "v1",
         "recognizer_loaded": MODEL_READY,
         "face_loaded": FACE_READY,
-        "landmark_loaded": LANDMARK_READY
+        "landmark_loaded": LANDMARK_READY,
+        "classifier_loaded": CLASSIFIER_READY
     }
     return render_template("index.html", data=data)
 
@@ -175,6 +189,7 @@ def healthz():
         "recognizer_loaded": MODEL_READY,
         "face_loaded": FACE_READY,
         "landmark_loaded": LANDMARK_READY,
+        "classifier_loaded": CLASSIFIER_READY,
     })
 
 @app.post("/v1/cat/recognize")
@@ -559,6 +574,130 @@ def landmark_route():
         "mouth_crop": uploaded_urls["mouth_crop"],
         "right_ear_crop": uploaded_urls["right_ear_crop"],
         "left_ear_crop": uploaded_urls["left_ear_crop"],
+    })
+
+@app.post("/v1/cat/area-check")
+def area_check():
+    """
+    Endpoint to classify cat facial areas and generate Grad-CAM visualizations.
+    
+    Request JSON format:
+    {
+        "right_eye": "https://storage.api/image1.jpg",
+        "left_eye": "https://storage.api/image2.jpg",
+        "mouth": "https://storage.api/image3.jpg",
+        "right_ear": "https://storage.api/image4.jpg",
+        "left_ear": "https://storage.api/image5.jpg"
+    }
+    
+    Response format:
+    {
+        "classification": {
+            "right_eye": {"label": "normal", "confidence": 0.95},
+            "left_eye": {"label": "abnormal", "confidence": 0.87},
+            ...
+        },
+        "gradcam": {
+            "right_eye": "https://storage.api/gradcam1.jpg",
+            "left_eye": "https://storage.api/gradcam2.jpg",
+            ...
+        }
+    }
+    """
+    if not CLASSIFIER_READY:
+        return err("CLASSIFIER_NOT_READY", "Area classifier not loaded", status=503)
+    
+    # Parse JSON request
+    if not request.is_json:
+        return err("INVALID_REQUEST", "Request must be JSON", status=400)
+    
+    data = request.get_json()
+    
+    # Expected area names
+    area_names = ["right_eye", "left_eye", "mouth", "right_ear", "left_ear"]
+    
+    # Validate all areas are present
+    missing = [a for a in area_names if a not in data]
+    if missing:
+        return err("MISSING_AREAS", f"Missing areas: {', '.join(missing)}", status=400)
+    
+    # Fetch images and process
+    classification_results = {}
+    gradcam_urls = {}
+    
+    for area_name in area_names:
+        url = data[area_name]
+        
+        if not url:
+            return err("INVALID_URL", f"URL for {area_name} is empty", status=400)
+        
+        try:
+            # Fetch image from URL
+            log.info(f"Fetching {area_name} from URL: {url}")
+            
+            response = requests.get(
+                url,
+                stream=True,
+                timeout=(config.CONTENT_API_TIMEOUT_CONNECT, config.CONTENT_API_TIMEOUT_READ),
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            response.raise_for_status()
+            
+            # Check content length
+            content_length = response.headers.get("Content-Length")
+            if content_length:
+                size_mb = int(content_length) / (1024 * 1024)
+                if size_mb > config.MAX_FILE_MB:
+                    return err("FILE_TOO_LARGE", f"{area_name}: max {config.MAX_FILE_MB} MB", status=413)
+            
+            image_bytes = response.content
+            
+            # Validate image
+            try:
+                img = Image.open(io.BytesIO(image_bytes))
+                img.verify()
+            except Exception as e:
+                return err("INVALID_IMAGE", f"{area_name}: {e}", status=400)
+            
+            # Classify area
+            log.info(f"Classifying {area_name}...")
+            classification_result = app.area_classifier.classify_area(area_name, image_bytes)
+            classification_results[area_name] = classification_result
+            
+            # Generate Grad-CAM
+            log.info(f"Generating Grad-CAM for {area_name}...")
+            gradcam_bytes = app.area_classifier.generate_gradcam(area_name, image_bytes)
+            
+            # Upload Grad-CAM to storage
+            bucket_name = f"{area_name}_gradcam"
+            timestamp = int(time.time() * 1000)
+            filename = f"{timestamp}-{g.request_id}.jpg"
+            
+            log.info(f"Uploading Grad-CAM for {area_name} to bucket {bucket_name}...")
+            gradcam_upload = upload_image_bytes(gradcam_bytes, bucket_name, filename)
+            
+            if not gradcam_upload.get("ok"):
+                msg = gradcam_upload.get("message", "Upload failed")
+                return err("UPLOAD_ERROR", f"Failed to upload {area_name} gradcam: {msg}", status=502)
+            
+            gradcam_data = gradcam_upload.get("data") or gradcam_upload
+            gradcam_url = gradcam_data.get("url")
+            
+            if not gradcam_url:
+                return err("UPLOAD_INVALID_RESPONSE", f"Upload service did not return url for {area_name} gradcam", status=502)
+            
+            gradcam_urls[area_name] = gradcam_url
+            
+        except requests.RequestException as e:
+            log.exception(f"FETCH_URL_ERROR for {area_name}: %s", e)
+            return err("FETCH_URL_ERROR", f"Failed to fetch {area_name} from URL: {e}", status=502)
+        except Exception as e:
+            log.exception(f"PROCESSING_ERROR for {area_name}: %s", e)
+            return err("PROCESSING_ERROR", f"Failed to process {area_name}: {e}", status=500)
+    
+    return ok({
+        "classification": classification_results,
+        "gradcam": gradcam_urls
     })
 
 if __name__ == "__main__":

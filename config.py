@@ -26,10 +26,18 @@ class Config:
     LANDMARK_BBOX_ONNX = os.getenv("LANDMARK_BBOX_ONNX", "models/landmark_model/frederic_bbox.onnx")
     LANDMARK_ONNX = os.getenv("LANDMARK_ONNX", "models/landmark_model/frederic_landmarks.onnx")
     
+    EYE_MODEL_PATH = os.getenv("EYE_MODEL_PATH", "models/classification_model/efficientnet_cat_eye_model_b1.h5")
+    EAR_MODEL_PATH = os.getenv("EAR_MODEL_PATH", "models/classification_model/efficientnet_cat_ear_model_b1.h5")
+    MOUTH_MODEL_PATH = os.getenv("MOUTH_MODEL_PATH", "models/classification_model/efficientnet_cat_mouth_model_b1.h5")
+    
     BUCKET_PREVIEW = os.getenv("BUCKET_PREVIEW", "preview-bounding-box")
     BUCKET_ROI = os.getenv("BUCKET_ROI", "roi-face-cat")
     BUCKET_LANDMARK = os.getenv("BUCKET_LANDMARK", "landmark-crops")
     BUCKET_LANDMARKED_FACE = os.getenv("BUCKET_LANDMARKED_FACE", "landmarked_face")
+    
+    CONTENT_API_BASE = os.getenv("CONTENT_API_BASE", "https://storage.rescat.life")
+    CONTENT_API_TIMEOUT_CONNECT = int(os.getenv("CONTENT_API_TIMEOUT_CONNECT", "5"))
+    CONTENT_API_TIMEOUT_READ = int(os.getenv("CONTENT_API_TIMEOUT_READ", "30"))
     
     REMOVEBG_CACHE_DIR = os.getenv("REMOVEBG_CACHE_DIR", "cache/remove-bg")
 
