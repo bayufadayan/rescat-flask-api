@@ -1,4 +1,9 @@
-"""Cat face detector using YOLO model."""
+"""Cat face detector using ONNXRuntime + OpenCV (CPU-only).
+
+This module provides the same public API as the previous YOLO/ultralytics-based
+implementation (`CatFaceDetector.detect` signature and `FaceResult` dataclass),
+but runs entirely on CPU using an exported ONNX detection model.
+"""
 
 import base64
 import io
@@ -8,9 +13,8 @@ from typing import Dict, Any
 
 import cv2
 import numpy as np
+import onnxruntime as ort
 from PIL import Image
-from ultralytics import YOLO
-import torch
 
 
 @dataclass
@@ -28,7 +32,7 @@ class FaceResult:
 
 
 class CatFaceDetector:
-    """YOLO-based cat face detector with smart ROI selection."""
+    """ONNXRuntime-based cat face detector with smart ROI selection (CPU-only)."""
 
     def __init__(
         self,
@@ -44,7 +48,11 @@ class CatFaceDetector:
     ):
         if not os.path.exists(onnx_path):
             raise FileNotFoundError(f"Cat-Head ONNX not found: {onnx_path}")
-        self.model = YOLO(onnx_path)
+
+        # Create CPU-only ONNXRuntime session
+        self.session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+        self.input_name = self.session.get_inputs()[0].name
+
         self.classes_path = classes_path
         self.img_size = int(img_size)
         self.conf_raw = float(conf_raw)
@@ -53,7 +61,6 @@ class CatFaceDetector:
         self.hi_count = float(hi_count)
         self.hi_priority = float(hi_priority)
         self.max_det = int(max_det)
-        self.device = 0 if torch.cuda.is_available() else "cpu"
 
     @staticmethod
     def _bytes_to_bgr(image_bytes: bytes) -> np.ndarray:
@@ -129,21 +136,65 @@ class CatFaceDetector:
             )
         return self._encode_jpeg_bytes(canvas)
 
+    def _run_onnx(self, bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Run ONNX detection model and return (confs, xyxy) arrays.
+
+        The exact output format depends on the exported model. This helper assumes
+        a common layout where the first output contains boxes+scores as
+        [N, 6] = [x1, y1, x2, y2, score, class_id]. Adjust this parsing if your
+        model differs.
+        """
+        img = bgr
+        h, w = img.shape[:2]
+        # Resize with letterbox/pad to self.img_size while keeping aspect ratio
+        scale = self.img_size / max(h, w)
+        new_w, new_h = int(w * scale), int(h * scale)
+        resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        canvas = np.zeros((self.img_size, self.img_size, 3), dtype=np.uint8)
+        pad_x = (self.img_size - new_w) // 2
+        pad_y = (self.img_size - new_h) // 2
+        canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
+
+        inp = canvas.astype("float32") / 255.0
+        inp = np.transpose(inp, (2, 0, 1))  # HWC -> CHW
+        inp = np.expand_dims(inp, axis=0)
+
+        outputs = self.session.run(None, {self.input_name: inp})
+        preds = outputs[0]
+
+        if preds.ndim == 3:
+            preds = preds[0]
+
+        boxes = []
+        confs = []
+        for det in preds:
+            x1, y1, x2, y2, score, cls_id = det[:6]
+            if score < self.conf_raw:
+                continue
+
+            # Map back to original image coordinates
+            x1 = (x1 - pad_x) / scale
+            y1 = (y1 - pad_y) / scale
+            x2 = (x2 - pad_x) / scale
+            y2 = (y2 - pad_y) / scale
+
+            boxes.append([x1, y1, x2, y2])
+            confs.append(score)
+
+        if not boxes:
+            return np.array([]), np.empty((0, 4), dtype=int)
+
+        confs_arr = np.array(confs, dtype=float)
+        xyxy_arr = np.array(boxes, dtype=float)
+        return confs_arr, xyxy_arr
+
     def detect(self, image_bytes: bytes, include_roi_b64: bool = True) -> FaceResult:
-        """Detect cat faces and return structured result."""
+        """Detect cat faces and return structured result (CPU-only)."""
         bgr = self._bytes_to_bgr(image_bytes)
 
-        results = self.model.predict(
-            source=[bgr],
-            conf=self.conf_raw,
-            imgsz=self.img_size,
-            max_det=self.max_det,
-            verbose=False,
-            device=self.device,
-        )
-        r = results[0]
+        confs, xyxy = self._run_onnx(bgr)
 
-        if r.boxes is None or len(r.boxes) == 0:
+        if confs.size == 0 or xyxy.shape[0] == 0:
             preview = self._encode_jpeg_bytes(bgr)
             return FaceResult(
                 ok=False,
@@ -158,8 +209,7 @@ class CatFaceDetector:
                 roi_b64=None,
             )
 
-        confs = r.boxes.conf.cpu().numpy()
-        xyxy = r.boxes.xyxy.cpu().numpy().astype(int)
+        xyxy = xyxy.astype(int)
 
         keep_min = confs >= self.min_conf
         if not keep_min.any():
@@ -189,7 +239,7 @@ class CatFaceDetector:
         x1, y1, x2, y2 = map(int, xyxy[idx])
         roi_jpeg = None
         roi_b64 = None
-        roi = r.orig_img[y1:y2, x1:x2]
+        roi = bgr[y1:y2, x1:x2]
         ok_roi, buf_roi = cv2.imencode(".jpg", roi, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
         if ok_roi:
             roi_bytes = buf_roi.tobytes()
